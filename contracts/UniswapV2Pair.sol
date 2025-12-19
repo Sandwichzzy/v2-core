@@ -87,6 +87,8 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
 
     // if fee is on, mint liquidity equivalent to 1/6th of the growth in sqrt(k)
     function _mintFee(uint112 _reserve0, uint112 _reserve1) private returns (bool feeOn) {
+        //NOTE: mint fee on add/remove liquidity to save gas on swap
+        //NOTE: currently disabled on ETH mainnet
         address feeTo = IUniswapV2Factory(factory).feeTo();
         feeOn = feeTo != address(0);
         uint256 _kLast = kLast; // gas savings
@@ -111,15 +113,22 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         (uint112 _reserve0, uint112 _reserve1,) = getReserves(); // gas savings
         uint256 balance0 = IERC20(token0).balanceOf(address(this));
         uint256 balance1 = IERC20(token1).balanceOf(address(this));
+        //NOTE: 计算新增的储备量
         uint256 amount0 = balance0.sub(_reserve0);
         uint256 amount1 = balance1.sub(_reserve1);
 
         bool feeOn = _mintFee(_reserve0, _reserve1);
+        //total shares(T) = totalSupply
         uint256 _totalSupply = totalSupply; // gas savings, must be defined here since totalSupply can update in _mintFee
         if (_totalSupply == 0) {
+            //NOTE: AMM: XY=L^2
+            //NOTE: pool value function L= f(x,y) = sqrt(xy)
             liquidity = Math.sqrt(amount0.mul(amount1)).sub(MINIMUM_LIQUIDITY);
+            //NOTE:protection against vault inflation attack(防止通胀攻击)
             _mint(address(0), MINIMUM_LIQUIDITY); // permanently lock the first MINIMUM_LIQUIDITY tokens
         } else {
+            //NOTE: s=min(dx*T /x0, dy*T /y0)
+            //取最小值是可能有误差导致向下取整
             liquidity = Math.min(amount0.mul(_totalSupply) / _reserve0, amount1.mul(_totalSupply) / _reserve1);
         }
         require(liquidity > 0, "UniswapV2: INSUFFICIENT_LIQUIDITY_MINTED");
@@ -137,10 +146,15 @@ contract UniswapV2Pair is IUniswapV2Pair, UniswapV2ERC20 {
         address _token1 = token1; // gas savings
         uint256 balance0 = IERC20(_token0).balanceOf(address(this));
         uint256 balance1 = IERC20(_token1).balanceOf(address(this));
+        //NOTE: burning from this contract
         uint256 liquidity = balanceOf[address(this)];
 
+        //NOTE:protocal fee
         bool feeOn = _mintFee(_reserve0, _reserve1);
         uint256 _totalSupply = totalSupply; // gas savings, must be defined here since totalSupply can update in _mintFee
+        //NOTE:
+        //dx= s * x0 / T
+        //dy= s * y0 / T
         amount0 = liquidity.mul(balance0) / _totalSupply; // using balances ensures pro-rata distribution
         amount1 = liquidity.mul(balance1) / _totalSupply; // using balances ensures pro-rata distribution
         require(amount0 > 0 && amount1 > 0, "UniswapV2: INSUFFICIENT_LIQUIDITY_BURNED");
